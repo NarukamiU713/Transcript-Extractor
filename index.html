@@ -57,7 +57,7 @@
       <div>
         <div class="eyebrow">Webting / Transcript</div>
         <h1>把听力页面，变成可复制的全文。</h1>
-        <p class="intro">粘贴 Godic 听力网址，提取德语原文和网页音频地址；原文自动合并分段，支持带时间戳和无时间戳两种复制方式。</p>
+        <p class="intro">粘贴 Godic 听力网址，提取德语原文和网页音频地址；原文采用本地 NLP 分段，支持带时间戳和无时间戳两种复制方式。</p>
       </div>
       <div class="mark" aria-hidden="true">T</div>
     </header>
@@ -88,6 +88,7 @@
     </section>
     <footer>只解析目标网页公开返回的数据；不会绕过登录、付费或其他访问控制。播放器先尝试浏览器直接访问原始地址，再回退到本站代理；若上游只返回升级/试听提示，会明确提示而不会把它误当成完整音频。</footer>
   </main>
+  <script src="transcript_nlp.js"></script>
   <script>
     const form = document.querySelector('#form');
     const urlInput = document.querySelector('#url');
@@ -101,39 +102,11 @@
     const API_BASE = '';
     let current = null;
     const esc = (value) => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-    // Source paragraph IDs are often one ID per subtitle, not prose paragraphs.
-    // Treat them only as optional boundaries after several completed sentences.
+    // Memoize per response: display, copy, and download share identical NLP output.
+    const paragraphCache = new WeakMap();
     const paragraphs = (data) => {
-      const blocks = [];
-      let parts = [], previousId = null, finished = 0, length = 0;
-      const endsSentence = text => /[.!?…]["'»“”’)]*$/.test(text)
-        && !/\b(?:Dr|Prof|bzw|ca|usw|z\. B|d\. h)\.$/i.test(text);
-      const flush = () => {
-        if (parts.length) blocks.push(parts.join(' '));
-        parts = []; finished = 0; length = 0;
-      };
-      for (const item of data.items || []) {
-        const text = String(item.german || '').replace(/\s+/g, ' ').trim();
-        if (!text) continue;
-        const id = item.paragraph == null || item.paragraph === '' ? null : String(item.paragraph);
-        // Do not split an unfinished sentence, even if its paragraph ID changes.
-        if (finished >= 3 && parts.length && endsSentence(parts[parts.length - 1])
-            && id !== null && previousId !== null && id !== previousId) flush();
-        parts.push(text);
-        length += text.length + 1;
-        previousId = id;
-        if (endsSentence(text)) {
-          finished += 1;
-          if (finished >= 4 || (finished >= 2 && length >= 600)) flush();
-        }
-      }
-      // Avoid leaving a short isolated last sentence in its own paragraph.
-      if (blocks.length && parts.length && finished <= 1 && length < 300) {
-        blocks[blocks.length - 1] += ' ' + parts.join(' ');
-      } else {
-        flush();
-      }
-      return blocks;
+      if (!paragraphCache.has(data)) paragraphCache.set(data, TranscriptNLP.paragraphs(data));
+      return paragraphCache.get(data);
     };
     const plainText = (data) => paragraphs(data).join('\n\n');
     // Keep the original per-subtitle copy format as a separate action.
@@ -174,7 +147,7 @@
         document.querySelector('#title').textContent = '完整听力原文';
         const audio = Array.isArray(data.audio) ? data.audio : [];
         const blocks = paragraphs(data);
-        meta.textContent = `${data.count} 条字幕 · ${blocks.length} 个段落（不含时间戳） · ${audio.length} 个音频 · 数据来源：${data.source}`;
+        meta.textContent = `${data.count} 条字幕 · ${blocks.length} 个段落（NLP 分段 · 无时间戳） · ${audio.length} 个音频 · 数据来源：${data.source}`;
         transcript.innerHTML = blocks.map(text => `<p class="row">${esc(text)}</p>`).join('') || '<p class="empty">未提取到原文内容。</p>';
         document.querySelector('#copy').disabled = !blocks.length;
         document.querySelector('#copy-timestamps').disabled = !blocks.length;
@@ -216,7 +189,7 @@
         status.className = 'status';
         status.textContent = withTimestamps
           ? '已复制带时间戳的原文，保留逐条字幕格式。'
-          : '原文已复制，连续句子已合并分段，不含时间戳。';
+          : '原文已复制，已按词汇衔接与段落长度整理，不含时间戳。';
       } catch (error) { status.className = 'status error'; status.textContent = error.message; }
     };
     document.querySelector('#copy').addEventListener('click', () => copyTranscript(false));

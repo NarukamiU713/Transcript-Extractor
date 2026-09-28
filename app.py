@@ -61,6 +61,9 @@ class Handler(BaseHTTPRequestHandler):
         if parsed.path == "/api/audio":
             self._proxy_audio()
             return
+        if parsed.path == "/transcript_nlp.js":
+            self._send(200, "application/javascript; charset=utf-8", (HERE / "transcript_nlp.js").read_bytes())
+            return
         if parsed.path in ("/", "/index.html"):
             self._send(200, "text/html; charset=utf-8", (HERE / "index.html").read_text(encoding="utf-8"))
             return

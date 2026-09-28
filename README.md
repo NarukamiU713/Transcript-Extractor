@@ -6,9 +6,25 @@ Paste a Godic listening URL to extract the complete German transcript from the p
 
 Two independent copy actions are available: **复制（带时间戳）** preserves the original per-subtitle timestamp format, while **复制原文（无时间戳）** joins consecutive subtitle sentences into readable paragraphs without timestamps or translations. The displayed transcript and TXT download use the latter format.
 
-Source paragraph IDs are often one-per-sentence, so they no longer force a paragraph break. The formatter generally groups 3–4 sentence-ending subtitle entries, breaks long groups after at least two completed entries, and merges a short trailing singleton into the preceding paragraph. An unfinished sentence is not split just because the source paragraph ID changes. This is rule-based formatting, not semantic rewriting.
+The clean formatter runs locally in `transcript_nlp.js`. It uses a **TextTiling-inspired lexical-cohesion algorithm**, not fixed groups of subtitle lines:
 
-Run regression tests with `python -m unittest discover -s tests -v` and `node tests/test_frontend.cjs`.
+1. Merge subtitle fragments and normalize whitespace; source paragraph IDs do not force breaks.
+2. Detect German sentence boundaries with `Intl.Segmenter`, with a conservative fallback and repairs for common abbreviations, initials, dates, and decimal numbers.
+3. Remove German stopwords and lightly normalize inflections **for analysis only**. Compare adjacent three-sentence windows with TF-IDF cosine similarity, then find local cohesion valleys as candidate topic boundaries.
+4. Use dynamic programming to balance topic boundaries, weak transition phrases, paragraph length, and a penalty against isolated short sentences. A soft target of 95 words and a 260-word limit (except unsplittable sentences) guide readability; there is no fixed number of sentences per paragraph.
+5. Separate paragraphs with one blank line. A lossless check ensures all original words, punctuation, and their order are preserved; if segmentation would lose text, return the original merged text instead.
+
+This is a lightweight adaptation, **not a complete reproduction of TextTiling, a semantic embedding model, or a German lemmatizer**. It does not rewrite, correct, translate, invent headings, or infer speakers. Lexical topic changes are heuristic, so ambiguous transitions may differ from human editing. No API key, downloaded model, third-party upload, or extra runtime dependency is needed. Spoken times such as `12:30 Uhr` remain intact; only subtitle timestamp metadata is excluded in clean mode.
+
+Algorithm reference: Marti A. Hearst (1997), [TextTiling: Segmenting Text into Multi-paragraph Subtopic Passages](https://aclanthology.org/J97-1003/).
+
+Run regression tests:
+
+```sh
+python -m unittest discover -s tests -v
+node tests/test_frontend.cjs
+node tests/test_nlp.cjs
+```
 
 ## Audio playback
 

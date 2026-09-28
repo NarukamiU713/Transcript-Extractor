@@ -19,6 +19,7 @@ const context = vm.createContext({
     execCommand: () => true,
   },
 });
+vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'transcript_nlp.js'), 'utf8'), context);
 vm.runInContext(script + '\nthis.helpers = {paragraphs, plainText, timestampedText, copyText};', context);
 const {paragraphs, plainText, timestampedText, copyText} = context.helpers;
 const data = {items: [
@@ -39,7 +40,7 @@ assert.equal(paragraphs(data).length, 1);
 assert.equal(timestampedText(data), '[00:01] Guten   Tag.\n\nWie geht es Ihnen?\n\nDanke!');
 assert.equal(timestampedText({items: []}), '');
 const singleSentenceParagraphs = {items: Array.from({length: 8}, (_, i) => ({german: `Satz ${i + 1}.`, paragraph: i + 1}))};
-assert.equal(plainText(singleSentenceParagraphs), 'Satz 1. Satz 2. Satz 3.\n\nSatz 4. Satz 5. Satz 6.\n\nSatz 7. Satz 8.');
+assert.equal(paragraphs(singleSentenceParagraphs).length, 1);
 assert.equal(plainText({items: singleSentenceParagraphs.items.slice(0, 4)}), 'Satz 1. Satz 2. Satz 3. Satz 4.');
 const fragments = {items: [
   {german: 'Eins.', paragraph: 1}, {german: 'Zwei.', paragraph: 1},
@@ -59,7 +60,7 @@ assert.match(html, /id="copy-timestamps"/);
   assert.match(elements.get('#status').textContent, /带时间戳/);
   await listeners['#copy:click']();
   assert.equal(clipboard, plainText(data));
-  assert.match(elements.get('#status').textContent, /连续句子已合并分段/);
+  assert.match(elements.get('#status').textContent, /词汇衔接与段落长度/);
   context.navigator.clipboard.writeText = async () => { throw new Error('denied'); };
   await copyText('fallback');
   assert.equal(removed, true);
