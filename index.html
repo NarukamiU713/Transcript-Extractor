@@ -57,7 +57,7 @@
       <div>
         <div class="eyebrow">Webting / Transcript</div>
         <h1>把听力页面，变成可复制的全文。</h1>
-        <p class="intro">粘贴 Godic 听力网址，提取德语原文和网页音频地址；原文自动分段，复制和下载均不带时间戳。</p>
+        <p class="intro">粘贴 Godic 听力网址，提取德语原文和网页音频地址；原文自动合并分段，支持带时间戳和无时间戳两种复制方式。</p>
       </div>
       <div class="mark" aria-hidden="true">T</div>
     </header>
@@ -75,7 +75,8 @@
       <div class="result-head">
         <div><h2 id="title">解析结果</h2><div id="meta" class="meta"></div></div>
         <div class="actions">
-          <button id="copy" class="secondary" type="button">复制原文</button>
+          <button id="copy" class="secondary" type="button">复制原文（无时间戳）</button>
+          <button id="copy-timestamps" class="secondary" type="button">复制（带时间戳）</button>
           <button id="download" class="secondary" type="button">下载 TXT</button>
         </div>
       </div>
@@ -100,31 +101,46 @@
     const API_BASE = '';
     let current = null;
     const esc = (value) => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-    // Keep the source's paragraph boundaries; older responses without them use
-    // small readable groups, never breaking at an unfinished subtitle fragment.
+    // Source paragraph IDs are often one ID per subtitle, not prose paragraphs.
+    // Treat them only as optional boundaries after several completed sentences.
     const paragraphs = (data) => {
       const blocks = [];
-      let parts = [], previousId = null, finished = 0;
+      let parts = [], previousId = null, finished = 0, length = 0;
+      const endsSentence = text => /[.!?…]["'»“”’)]*$/.test(text)
+        && !/\b(?:Dr|Prof|bzw|ca|usw|z\. B|d\. h)\.$/i.test(text);
       const flush = () => {
         if (parts.length) blocks.push(parts.join(' '));
-        parts = []; finished = 0;
+        parts = []; finished = 0; length = 0;
       };
       for (const item of data.items || []) {
         const text = String(item.german || '').replace(/\s+/g, ' ').trim();
         if (!text) continue;
         const id = item.paragraph == null || item.paragraph === '' ? null : String(item.paragraph);
-        if (parts.length && id !== previousId && (id !== null || previousId !== null)) flush();
+        // Do not split an unfinished sentence, even if its paragraph ID changes.
+        if (finished >= 3 && parts.length && endsSentence(parts[parts.length - 1])
+            && id !== null && previousId !== null && id !== previousId) flush();
         parts.push(text);
+        length += text.length + 1;
         previousId = id;
-        if (id === null && /[.!?…]["'»“”’)]*$/.test(text)) {
+        if (endsSentence(text)) {
           finished += 1;
-          if (finished >= 3) flush();
+          if (finished >= 4 || (finished >= 2 && length >= 600)) flush();
         }
       }
-      flush();
+      // Avoid leaving a short isolated last sentence in its own paragraph.
+      if (blocks.length && parts.length && finished <= 1 && length < 300) {
+        blocks[blocks.length - 1] += ' ' + parts.join(' ');
+      } else {
+        flush();
+      }
       return blocks;
     };
     const plainText = (data) => paragraphs(data).join('\n\n');
+    // Keep the original per-subtitle copy format as a separate action.
+    const timestampedText = (data) => (data.items || [])
+      .filter(item => String(item.german || '').trim())
+      .map(item => `${item.start ? `[${item.start}] ` : ''}${String(item.german).trim()}`)
+      .join('\n\n');
     const copyText = async (text) => {
       try {
         if (!navigator.clipboard?.writeText) throw new Error('Clipboard unavailable');
@@ -161,6 +177,7 @@
         meta.textContent = `${data.count} 条字幕 · ${blocks.length} 个段落（不含时间戳） · ${audio.length} 个音频 · 数据来源：${data.source}`;
         transcript.innerHTML = blocks.map(text => `<p class="row">${esc(text)}</p>`).join('') || '<p class="empty">未提取到原文内容。</p>';
         document.querySelector('#copy').disabled = !blocks.length;
+        document.querySelector('#copy-timestamps').disabled = !blocks.length;
         document.querySelector('#download').disabled = !blocks.length;
         audioMeta.textContent = audio.length ? `${audio.length} 个公开音频地址` : '';
         audioList.innerHTML = audio.length ? audio.map((item, index) => {
@@ -192,13 +209,18 @@
       } catch (error) { status.className = 'status error'; status.textContent = error.message; }
       finally { parseButton.disabled = false; parseButton.textContent = '解析全文'; }
     });
-    document.querySelector('#copy').addEventListener('click', async () => {
+    const copyTranscript = async (withTimestamps) => {
       if (!current) return;
       try {
-        await copyText(plainText(current));
-        status.className = 'status'; status.textContent = '原文已复制，已按段落整理，不含时间戳。';
+        await copyText(withTimestamps ? timestampedText(current) : plainText(current));
+        status.className = 'status';
+        status.textContent = withTimestamps
+          ? '已复制带时间戳的原文，保留逐条字幕格式。'
+          : '原文已复制，连续句子已合并分段，不含时间戳。';
       } catch (error) { status.className = 'status error'; status.textContent = error.message; }
-    });
+    };
+    document.querySelector('#copy').addEventListener('click', () => copyTranscript(false));
+    document.querySelector('#copy-timestamps').addEventListener('click', () => copyTranscript(true));
     document.querySelector('#download').addEventListener('click', () => { if (!current) return; const blob = new Blob([plainText(current)], {type:'text/plain;charset=utf-8'}); const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'godic-transcript.txt'; a.click(); URL.revokeObjectURL(a.href); });
   </script>
 </body>

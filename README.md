@@ -4,7 +4,9 @@ Paste a Godic listening URL to extract the complete German transcript from the p
 
 ## Clean transcript copying
 
-The displayed transcript, **复制原文** button, and TXT download contain only the German original text, with no subtitle timestamps or translations. Sentences sharing a source paragraph number are joined with spaces; paragraphs are separated by a blank line. When source paragraph metadata is missing, subtitle fragments are joined into groups ending after three sentence-ending subtitle entries. This is rule-based formatting, not semantic rewriting.
+Two independent copy actions are available: **复制（带时间戳）** preserves the original per-subtitle timestamp format, while **复制原文（无时间戳）** joins consecutive subtitle sentences into readable paragraphs without timestamps or translations. The displayed transcript and TXT download use the latter format.
+
+Source paragraph IDs are often one-per-sentence, so they no longer force a paragraph break. The formatter generally groups 3–4 sentence-ending subtitle entries, breaks long groups after at least two completed entries, and merges a short trailing singleton into the preceding paragraph. An unfinished sentence is not split just because the source paragraph ID changes. This is rule-based formatting, not semantic rewriting.
 
 Run regression tests with `python -m unittest discover -s tests -v` and `node tests/test_frontend.cjs`.
 
