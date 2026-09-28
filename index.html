@@ -44,13 +44,11 @@
     .audio-link { color:var(--accent-dark); font-size:13px; font-weight:700; }
     .audio-link.secondary { color:var(--muted); font-weight:600; }
     .audio-empty { color:var(--muted); margin:0; font-size:13px; }
-    .row { display:grid; grid-template-columns:92px minmax(0,1fr); gap:18px; padding:15px 18px; border-bottom:1px solid #edf1ee; }
+    .row { margin:0; padding:15px 18px; line-height:1.85; overflow-wrap:anywhere; border-bottom:1px solid #edf1ee; }
     .row:last-child { border-bottom:0; }
-    .time { color:var(--accent-dark); font:700 12px ui-monospace, SFMono-Regular, Consolas, monospace; padding-top:3px; }
-    .de { font-weight:650; }
     .empty { padding:36px; text-align:center; color:var(--muted); }
     footer { color:var(--muted); font-size:12px; margin-top:28px; }
-    @media (max-width:700px) { .shell{width:min(100% - 24px,1120px);padding-top:30px;} header{align-items:flex-start}.mark{display:none}.input-band{display:block}.field{margin-bottom:12px}.primary{width:100%}.result-head{display:block}.actions{margin-top:14px}.row{grid-template-columns:1fr;gap:4px;padding:16px}.time{padding:0} }
+    @media (max-width:700px) { .shell{width:min(100% - 24px,1120px);padding-top:30px;} header{align-items:flex-start}.mark{display:none}.input-band{display:block}.field{margin-bottom:12px}.primary{width:100%}.result-head{display:block}.actions{margin-top:14px}.row{padding:16px} }
   </style>
 </head>
 <body>
@@ -59,7 +57,7 @@
       <div>
         <div class="eyebrow">Webting / Transcript</div>
         <h1>把听力页面，变成可复制的全文。</h1>
-        <p class="intro">粘贴 Godic 听力网址，提取页面内嵌的完整德语字幕、时间戳和网页音频地址。</p>
+        <p class="intro">粘贴 Godic 听力网址，提取德语原文和网页音频地址；原文自动分段，复制和下载均不带时间戳。</p>
       </div>
       <div class="mark" aria-hidden="true">T</div>
     </header>
@@ -77,7 +75,7 @@
       <div class="result-head">
         <div><h2 id="title">解析结果</h2><div id="meta" class="meta"></div></div>
         <div class="actions">
-          <button id="copy" class="secondary" type="button">复制全文</button>
+          <button id="copy" class="secondary" type="button">复制原文</button>
           <button id="download" class="secondary" type="button">下载 TXT</button>
         </div>
       </div>
@@ -102,7 +100,51 @@
     const API_BASE = '';
     let current = null;
     const esc = (value) => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-    const plainText = (data) => data.items.map(x => `[${x.start}] ${x.german}`).join('\n\n');
+    // Keep the source's paragraph boundaries; older responses without them use
+    // small readable groups, never breaking at an unfinished subtitle fragment.
+    const paragraphs = (data) => {
+      const blocks = [];
+      let parts = [], previousId = null, finished = 0;
+      const flush = () => {
+        if (parts.length) blocks.push(parts.join(' '));
+        parts = []; finished = 0;
+      };
+      for (const item of data.items || []) {
+        const text = String(item.german || '').replace(/\s+/g, ' ').trim();
+        if (!text) continue;
+        const id = item.paragraph == null || item.paragraph === '' ? null : String(item.paragraph);
+        if (parts.length && id !== previousId && (id !== null || previousId !== null)) flush();
+        parts.push(text);
+        previousId = id;
+        if (id === null && /[.!?…]["'»“”’)]*$/.test(text)) {
+          finished += 1;
+          if (finished >= 3) flush();
+        }
+      }
+      flush();
+      return blocks;
+    };
+    const plainText = (data) => paragraphs(data).join('\n\n');
+    const copyText = async (text) => {
+      try {
+        if (!navigator.clipboard?.writeText) throw new Error('Clipboard unavailable');
+        await navigator.clipboard.writeText(text);
+        return;
+      } catch (_) {
+        // Support HTTP/local environments and browsers denying Clipboard API.
+        const field = document.createElement('textarea');
+        const focused = document.activeElement;
+        field.value = text;
+        field.style.cssText = 'position:fixed;left:-9999px;top:0';
+        document.body.appendChild(field);
+        try {
+          field.focus(); field.select();
+          if (!document.execCommand('copy')) throw new Error('自动复制失败，请选中下方原文手动复制。');
+        } finally {
+          field.remove(); focused?.focus();
+        }
+      }
+    };
 
     form.addEventListener('submit', async (event) => {
       event.preventDefault();
@@ -115,8 +157,11 @@
         current = data;
         document.querySelector('#title').textContent = '完整听力原文';
         const audio = Array.isArray(data.audio) ? data.audio : [];
-        meta.textContent = `${data.count} 条字幕 · ${data.embedded_paragraph_count || 0} 个段落 · ${audio.length} 个音频 · 数据来源：${data.source}`;
-        transcript.innerHTML = data.items.map(x => `<article class="row"><div class="time">${esc(x.start)}</div><div class="de">${esc(x.german)}</div></article>`).join('');
+        const blocks = paragraphs(data);
+        meta.textContent = `${data.count} 条字幕 · ${blocks.length} 个段落（不含时间戳） · ${audio.length} 个音频 · 数据来源：${data.source}`;
+        transcript.innerHTML = blocks.map(text => `<p class="row">${esc(text)}</p>`).join('') || '<p class="empty">未提取到原文内容。</p>';
+        document.querySelector('#copy').disabled = !blocks.length;
+        document.querySelector('#download').disabled = !blocks.length;
         audioMeta.textContent = audio.length ? `${audio.length} 个公开音频地址` : '';
         audioList.innerHTML = audio.length ? audio.map((item, index) => {
           const proxyUrl = `${API_BASE}/api/audio?url=${encodeURIComponent(item.url)}&referer=${encodeURIComponent(data.url || urlInput.value.trim())}`;
@@ -147,7 +192,13 @@
       } catch (error) { status.className = 'status error'; status.textContent = error.message; }
       finally { parseButton.disabled = false; parseButton.textContent = '解析全文'; }
     });
-    document.querySelector('#copy').addEventListener('click', async () => { if (!current) return; await navigator.clipboard.writeText(plainText(current)); status.className = 'status'; status.textContent = '全文已复制到剪贴板。'; });
+    document.querySelector('#copy').addEventListener('click', async () => {
+      if (!current) return;
+      try {
+        await copyText(plainText(current));
+        status.className = 'status'; status.textContent = '原文已复制，已按段落整理，不含时间戳。';
+      } catch (error) { status.className = 'status error'; status.textContent = error.message; }
+    });
     document.querySelector('#download').addEventListener('click', () => { if (!current) return; const blob = new Blob([plainText(current)], {type:'text/plain;charset=utf-8'}); const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'godic-transcript.txt'; a.click(); URL.revokeObjectURL(a.href); });
   </script>
 </body>

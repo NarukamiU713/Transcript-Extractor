@@ -2,6 +2,12 @@
 
 Paste a Godic listening URL to extract the complete German transcript from the page's embedded `translate.subtitles` payload.
 
+## Clean transcript copying
+
+The displayed transcript, **复制原文** button, and TXT download contain only the German original text, with no subtitle timestamps or translations. Sentences sharing a source paragraph number are joined with spaces; paragraphs are separated by a blank line. When source paragraph metadata is missing, subtitle fragments are joined into groups ending after three sentence-ending subtitle entries. This is rule-based formatting, not semantic rewriting.
+
+Run regression tests with `python -m unittest discover -s tests -v` and `node tests/test_frontend.cjs`.
+
 ## Audio playback
 
 When the target page publicly exposes an audio URL, the app displays an HTML5 player. The browser tries the original URL first (so an existing Godic browser session can be used), then falls back to `/api/audio`. The proxy forwards `Range`, `Referer`, and the upstream media headers so seeking and playback work more reliably when the original host blocks cross-origin requests or direct browser requests. The original URL is still available as a link.

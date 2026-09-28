@@ -187,6 +187,7 @@ class TranscriptParser(HTMLParser):
         super().__init__(convert_charrefs=True)
         self.rows = []
         self.paragraph = None
+        self.paragraph_number = 0
         self.sentence = None
         self.in_translation = False
         self.body_text = []
@@ -195,6 +196,7 @@ class TranscriptParser(HTMLParser):
         attrs = dict(attrs)
         classes = set(attrs.get("class", "").split())
         if tag == "p" and "paragraph" in classes:
+            self.paragraph_number += 1
             self.paragraph = {"sentences": [], "translation": []}
         elif self.paragraph is not None and "sentence" in classes:
             self.sentence = {
@@ -216,6 +218,7 @@ class TranscriptParser(HTMLParser):
                     "start": sentence["start"],
                     "end": sentence["end"],
                     "german": clean_text("".join(sentence["text"])),
+                    "paragraph": self.paragraph_number,
                     "translation": translation,
                 })
             self.paragraph = None
@@ -253,6 +256,7 @@ def extract(html: str, url: str) -> dict:
                             "start": timestamps[0].strip("[]") if timestamps else "",
                             "end": timestamps[-1].strip("[]") if timestamps else "",
                             "german": (item.get("origintext") or "").strip(),
+                            "paragraph": item.get("paragraph"),
                             "translation": (item.get("translation") or "").strip(),
                         }
                     )
